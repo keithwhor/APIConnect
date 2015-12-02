@@ -139,7 +139,7 @@ var APIConnect = (function() {
     var fnSerialize = function(keys, key, i) {
 
       keys = keys.concat([key]);
-      datum = obj;
+      var datum = obj;
 
       keys.forEach(function(key) {
         datum = datum[key];
