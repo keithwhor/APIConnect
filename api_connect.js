@@ -73,14 +73,31 @@ var APIConnect = (function() {
 
   };
 
+  APIRequest.prototype.upload = function(file, callback) {
+
+    return new APIXHR(this._url, callback).upload(file);
+
+  };
+
   function APIXHR(url, callback) {
 
     this._url = url;
-    this._callback = callback;
+    this._active = false;
+    this._complete = false;
 
     var self = this;
     var xhr = new XMLHttpRequest();
     this._xhr = xhr;
+
+    var cb = callback;
+    callback = function() {
+
+      self._complete = true;
+      cb.apply(this, arguments);
+
+    };
+
+    this._callback = callback;
 
     xhr.addEventListener('readystatechange', function() {
 
@@ -88,6 +105,7 @@ var APIConnect = (function() {
 
       if (xhr.readyState === 0) {
         callback.call(self, new Error('Request aborted'), null, []);
+        return;
       }
 
       if (xhr.readyState === 4) {
@@ -110,6 +128,7 @@ var APIConnect = (function() {
         }
 
         callback.call(self, null, obj, obj.data || []);
+        return;
 
       }
 
@@ -169,34 +188,76 @@ var APIConnect = (function() {
 
   };
 
+  APIXHR.prototype.__checkActiveState__ = function() {
+    if (this._active) {
+      throw new Error('APIXHR is already active, can only be aborted.');
+    }
+    return true;
+  };
+
+  APIXHR.prototype.__setActiveState__ = function() {
+    this._active = true;
+  };
+
   APIXHR.prototype.abort = function() {
-    this._xhr.abort();
+
+    if (!this._active) {
+      throw new Error('Cannot abort APIXHR that is not active');
+    }
+
+    if (!this._complete) {
+      this._xhr.abort();
+    }
+
+    return this;
+
   };
 
   APIXHR.prototype.get = function(params) {
+    this.__checkActiveState__();
     var xhr = this._xhr;
     xhr.open('GET', [this._url, this.serialize(params)].join('?'));
     xhr.send();
+    this.__setActiveState__();
+    return this;
   };
 
   APIXHR.prototype.del = function(params) {
+    this.__checkActiveState__();
     var xhr = this._xhr;
     xhr.open('DELETE', [this._url, this.serialize(params)].join('?'));
     xhr.send();
+    this.__setActiveState__();
+    return this;
   };
 
   APIXHR.prototype.post = function(params) {
+    this.__checkActiveState__();
     var xhr = this._xhr;
     xhr.open('POST', this._url);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.send(JSON.stringify(params));
+    this.__setActiveState__();
+    return this;
   };
 
   APIXHR.prototype.put = function(params) {
+    this.__checkActiveState__();
     var xhr = this._xhr;
     xhr.open('PUT', this._url);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.send(JSON.stringify(params));
+    this.__setActiveState__();
+    return this;
+  };
+
+  APIXHR.prototype.upload = function(file) {
+    this.__checkActiveState__();
+    var xhr = this._xhr;
+    xhr.open('POST', this._url);
+    xhr.send(file);
+    this.__setActiveState__();
+    return this;
   };
   
   return APIConnect;
