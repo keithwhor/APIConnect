@@ -1,5 +1,62 @@
 var APIConnect = (function() {
 
+  function copyAdd(obj, field, value) {
+
+    var newObj = {};
+    value && (newObj[field] = value);
+
+    Object.keys(obj).forEach(function(k) {
+      newObj[k] = obj[k];
+    });
+
+    return newObj;
+
+  }
+
+  function serializeParameters(obj) {
+
+    var fnConvert = function(keys, isArray, v) {
+      isArray = ['', '[]'][isArray | 0];
+      return (keys.length < 2) ? (
+        [keys[0], isArray, '=', v].join('')
+      ) : (
+        [keys[0], '[' + keys.slice(1).join(']['), ']', isArray, '=', v].join('')
+      );
+    };
+
+    var fnSerialize = function(keys, key, i) {
+
+      keys = keys.concat([key]);
+      var datum = obj;
+
+      keys.forEach(function(key) {
+        datum = datum[key];
+      });
+
+      if (datum instanceof Date) {
+
+        datum = [datum.getFullYear(), datum.getMonth() + 1, datum.getDate()].join('-');
+
+      }
+
+      if (datum instanceof Array) {
+
+        return datum.map(fnConvert.bind(null, keys, true)).join('&');
+
+      } else if (typeof(datum) === 'object' && datum !== null) {
+
+        return Object.keys(datum).map(fnSerialize.bind(null, keys)).join('&');
+
+      }
+
+      return fnConvert(keys, false, datum);
+
+    };
+
+    return Object.keys(obj).map(fnSerialize.bind(null, [])).join('&');
+
+  }
+
   function APIConnect(domain) {
 
     if (domain[domain.length - 1] === '/') {
@@ -7,7 +64,7 @@ var APIConnect = (function() {
     }
 
     this._domain = domain;
-    this._token = undefined;
+    this._accessToken = localStorage.getItem(this._domain + ':accessToken') || undefined;
 
   }
 
@@ -17,65 +74,84 @@ var APIConnect = (function() {
       path = path.substr(1);
     }
 
-    return new APIRequest(this._domain, path, this._token);
+    return new APIRequest(this._domain, path, this._accessToken);
 
   };
 
-  APIConnect.prototype.setToken = function(token) {
-    this._token = ((token || '') + '') || undefined;
+  APIConnect.prototype.open = function(path, params) {
+
+    window.location = [
+      [this._domain, path].join('/'),
+      '?',
+      serializeParameters(copyAdd(params, 'access_token', this._accessToken))
+    ].join('');
+
   };
 
-  function APIRequest(domain, path, token) {
+  APIConnect.prototype.setAccessToken = function(accessToken) {
+    if (accessToken) {
+      localStorage.setItem(this._domain + ':accessToken', accessToken);
+      this._accessToken = accessToken
+    } else {
+      this.clearAccessToken();
+    }
+  };
+
+  APIConnect.prototype.clearAccessToken = function() {
+    localStorage.removeItem(this._domain + ':accessToken');
+    this._accessToken = undefined;
+  };
+
+  function APIRequest(domain, path, accessToken) {
     this._url = [domain, path].join('/');
-    this._token = token || undefined;
+    this._accessToken = accessToken || undefined;
   }
 
-  APIRequest.prototype.addKey = function(obj) {
+  APIRequest.prototype.addAccessToken = function(obj) {
 
-    var newObj = {};
-    this._token && (newObj.token = this._token);
+    return copyAdd(obj, 'access_token', this._accessToken);
 
-    Object.keys(obj).forEach(function(k) {
-      newObj[k] = obj[k];
-    });
+  };
 
-    return newObj;
+  APIRequest.prototype.addAccessTokenQueryString = function() {
+
+    return (this._accessToken ? '?access_token=' + this._accessToken : '');
 
   };
 
   APIRequest.prototype.index = function(params, callback) {
 
-    return new APIXHR(this._url, callback).get(this.addKey(params));
+    return new APIXHR(this._url, callback).get(this.addAccessToken(params));
 
   };
 
   APIRequest.prototype.show = function(id, params, callback) {
 
-    return new APIXHR(this._url + (id ? '/' + id : ''), callback).get(this.addKey(params));
+    return new APIXHR(this._url + (id ? '/' + id : ''), callback).get(this.addAccessToken(params));
 
   };
 
   APIRequest.prototype.destroy = function(id, params, callback) {
 
-    return new APIXHR(this._url + (id ? '/' + id : ''), callback).del(this.addKey(params));
+    return new APIXHR(this._url + (id ? '/' + id : ''), callback).del(this.addAccessToken(params));
 
   };
 
   APIRequest.prototype.create = function(params, callback) {
 
-    return new APIXHR(this._url + (this._token ? '?token=' + this._token : ''), callback).post(params);
+    return new APIXHR(this._url + this.addAccessTokenQueryString(), callback).post(params);
 
   };
 
   APIRequest.prototype.update = function(id, params, callback) {
 
-    return new APIXHR(this._url + (id ? '/' + id : '') + (this._token ? '?token=' + this._token : ''), callback).put(params);
+    return new APIXHR(this._url + (id ? '/' + id : '') + this.addAccessTokenQueryString(), callback).put(params);
 
   };
 
   APIRequest.prototype.upload = function(file, callback) {
 
-    return new APIXHR(this._url, callback).upload(file);
+    return new APIXHR(this._url + this.addAccessTokenQueryString(), callback).upload(file);
 
   };
 
@@ -94,6 +170,7 @@ var APIConnect = (function() {
 
       self._complete = true;
       cb.apply(this, arguments);
+      $rootScope.$digest();
 
     };
 
@@ -144,50 +221,6 @@ var APIConnect = (function() {
 
   }
 
-  APIXHR.prototype.serialize = function(obj) {
-
-    var fnConvert = function(keys, isArray, v) {
-      isArray = ['', '[]'][isArray | 0];
-      return (keys.length < 2) ? (
-        [keys[0], isArray, '=', v].join('')
-      ) : (
-        [keys[0], '[' + keys.slice(1).join(']['), ']', isArray, '=', v].join('')
-      );
-    };
-
-    var fnSerialize = function(keys, key, i) {
-
-      keys = keys.concat([key]);
-      var datum = obj;
-
-      keys.forEach(function(key) {
-        datum = datum[key];
-      });
-
-      if (datum instanceof Date) {
-
-        datum = [datum.getFullYear(), datum.getMonth() + 1, datum.getDate()].join('-');
-
-      }
-
-      if (datum instanceof Array) {
-
-        return datum.map(fnConvert.bind(null, keys, true)).join('&');
-
-      } else if (typeof(datum) === 'object' && datum !== null) {
-
-        return Object.keys(datum).map(fnSerialize.bind(null, keys)).join('&');
-
-      }
-
-      return fnConvert(keys, false, datum);
-
-    };
-
-    return Object.keys(obj).map(fnSerialize.bind(null, [])).join('&');
-
-  };
-
   APIXHR.prototype.__checkActiveState__ = function() {
     if (this._active) {
       throw new Error('APIXHR is already active, can only be aborted.');
@@ -216,7 +249,7 @@ var APIConnect = (function() {
   APIXHR.prototype.get = function(params) {
     this.__checkActiveState__();
     var xhr = this._xhr;
-    xhr.open('GET', [this._url, this.serialize(params)].join('?'));
+    xhr.open('GET', [this._url, serializeParameters(params)].join('?'));
     xhr.send();
     this.__setActiveState__();
     return this;
@@ -225,7 +258,7 @@ var APIConnect = (function() {
   APIXHR.prototype.del = function(params) {
     this.__checkActiveState__();
     var xhr = this._xhr;
-    xhr.open('DELETE', [this._url, this.serialize(params)].join('?'));
+    xhr.open('DELETE', [this._url, serializeParameters(params)].join('?'));
     xhr.send();
     this.__setActiveState__();
     return this;
