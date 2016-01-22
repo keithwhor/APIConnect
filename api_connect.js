@@ -170,7 +170,6 @@ var APIConnect = (function() {
 
       self._complete = true;
       cb.apply(this, arguments);
-      $rootScope.$digest();
 
     };
 
